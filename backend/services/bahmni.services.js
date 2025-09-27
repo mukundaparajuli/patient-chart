@@ -149,7 +149,6 @@ class BahmniService {
                 fileName: documentData.fileName
             });
 
-            // Validate required fields
             const requiredFields = ['content', 'encounterTypeName', 'visitUuid', 'format', 'patientUuid', 'fileType', 'fileName'];
             for (const field of requiredFields) {
                 if (!documentData[field]) {
@@ -157,21 +156,14 @@ class BahmniService {
                 }
             }
 
-            // Create JSON payload exactly like Postman
             const payload = {
                 content: documentData.content,
                 format: documentData.format,
                 patientUuid: documentData.patientUuid,
                 encounterTypeName: documentData.encounterTypeName,
                 fileType: documentData.fileType,
-                //fileName: documentData.fileName,
-
             };
 
-            console.log("Sending JSON payload exactly like Postman...");
-            console.log("Payload keys:", Object.keys(payload));
-
-            // Send JSON request exactly like Postman
             const response = await this._makeRequest(
                 "post",
                 `${env.bahmni.baseUrl}/ws/rest/v1/bahmnicore/visitDocument/uploadDocument`,
@@ -179,40 +171,25 @@ class BahmniService {
             );
 
             if (!response?.url) {
-                console.error("Invalid response structure:", response);
                 throw new Error("Invalid response from Bahmni - missing document URL");
             }
 
-            console.log("Document uploaded successfully:", response.url);
             return response;
 
         } catch (error) {
-            console.error("Document upload failed:", error);
-            console.error("Error details:", {
-                message: error.message,
-                statusCode: error.statusCode,
-                responseData: error.responseData
-            });
             throw new Error(`Failed to upload document: ${error.message}`);
         }
     }
 
     async linkDocumentToPatient(data) {
         try {
-            console.log("Linking document to patient...");
-
             const response = await this._makeRequest(
                 "post",
                 `${env.bahmni.baseUrl}/ws/rest/v1/bahmnicore/visitDocument`,
                 data
             );
-            console.log(response);
-
-            console.log("Document linked successfully");
             return response;
-
         } catch (error) {
-            console.error("Document linking failed:", error);
             throw new Error(`Failed to link document: ${error.message}`);
         }
     }
@@ -471,6 +448,57 @@ class BahmniService {
             throw error;
         }
     }
+
+	async getActiveVisit(patientUuid) {
+		try {
+			const url = `${env.bahmni.baseUrl}/ws/rest/v1/visit?patient=${patientUuid}&v=full`;
+			const response = await this._makeRequest("get", url);
+			if (!response?.results) return null;
+			const activeVisit = response.results.find(v => !v.stopDatetime) || null;
+			return activeVisit || null;
+		} catch (error) {
+			// If patient has no visits
+			if (error.statusCode === 404) return null;
+			throw new Error(`Failed to get active visit: ${error.message}`);
+		}
+	}
+
+	async getOrCreateActiveVisit(patientUuid, visitType, locationName) {
+		try {
+			const activeVisit = await this.getActiveVisit(patientUuid);
+			if (activeVisit?.uuid) return activeVisit.uuid;
+			return await this.createVisit(patientUuid, visitType, locationName);
+		} catch (error) {
+			throw new Error(`Failed to get or create active visit: ${error.message}`);
+		}
+	}
+
+	async checkVisitExists(visitUuid) {
+		try {
+			const visitInfo = await this._makeRequest('get', `${env.bahmni.baseUrl}/ws/rest/v1/visit/${visitUuid}`);
+			return {
+				exists: !!visitInfo?.uuid,
+				voided: !!visitInfo?.voided,
+				active: !visitInfo?.stopDatetime
+			};
+		} catch (error) {
+			if (error.statusCode === 404) {
+				return { exists: false, voided: true, active: false };
+			}
+			throw new Error(`Failed to check visit existence: ${error.message}`);
+		}
+	}
+
+	async getPatientVisits(patientUuid) {
+		try {
+			const url = `${env.bahmni.baseUrl}/ws/rest/v1/visit?patient=${patientUuid}&v=full`;
+			const response = await this._makeRequest("get", url);
+			return response?.results || [];
+		} catch (error) {
+			if (error.statusCode === 404) return [];
+			throw new Error(`Failed to list patient visits: ${error.message}`);
+		}
+	}
 
 
 }
