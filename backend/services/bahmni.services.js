@@ -164,8 +164,8 @@ class BahmniService {
                 patientUuid: documentData.patientUuid,
                 encounterTypeName: documentData.encounterTypeName,
                 fileType: documentData.fileType,
-                //fileName: documentData.fileName,
-
+                fileName: documentData.fileName,
+                visitUuid: documentData.visitUuid,
             };
 
             console.log("Sending JSON payload exactly like Postman...");
@@ -407,6 +407,43 @@ class BahmniService {
             console.error("Visit creation failed:", error);
             throw new Error(`Failed to create visit: ${error.message} `);
         }
+    }
+
+    async getActiveVisit(patientUuid) {
+        try {
+            console.log(`Fetching active visit for patient ${patientUuid}...`);
+            const url = `${env.bahmni.baseUrl}/ws/rest/v1/visit?patient=${patientUuid}&v=full`;
+            const response = await this._makeRequest('get', url);
+            const activeVisit = (response?.results || []).find(v => !v.stopDatetime) || null;
+            if (activeVisit) {
+                console.log(`Active visit found: ${activeVisit.uuid}`);
+                return activeVisit;
+            }
+            console.log('No active visit found');
+            return null;
+        } catch (error) {
+            console.error('Failed to get active visit:', error);
+            throw new Error(`Failed to get active visit: ${error.message}`);
+        }
+    }
+
+    async checkVisitExists(visitUuid) {
+        try {
+            if (!visitUuid) return false;
+            const visit = await this._makeRequest('get', `${env.bahmni.baseUrl}/ws/rest/v1/visit/${visitUuid}`);
+            if (!visit || visit.voided) return false;
+            return true;
+        } catch (error) {
+            if (error.statusCode === 404) return false;
+            console.error('Failed to verify visit existence:', error);
+            throw new Error(`Failed to verify visit existence: ${error.message}`);
+        }
+    }
+
+    async getOrCreateActiveVisit(patientUuid, visitType, locationName) {
+        const active = await this.getActiveVisit(patientUuid);
+        if (active) return active.uuid;
+        return await this.createVisit(patientUuid, visitType, locationName);
     }
 
     async getTestUuid() {
